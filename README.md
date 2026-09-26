@@ -122,3 +122,14 @@ http://p0840.ten.osc.edu:8888/lab?token=b1320a0da58dbbd165ee1628469a06be1f1dd1d1
 - Understanding different I/O patterns in HPC workloads
 - Analyzing trace data to identify performance bottlenecks
 - Using DFAnalyzer for visualization and insights
+
+## License
+
+DFTracer Demo is distributed under the terms of the MIT license.
+All new contributions must be made under this license.
+
+See [LICENSE](LICENSE) and [NOTICE](NOTICE) for details.
+
+SPDX-License-Identifier: MIT
+
+LLNL-CODE-2024514 — Applied Storage Research (ASR)
