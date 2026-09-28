@@ -1,4 +1,4 @@
 ./software/dlio_benchmark
-git+https://github.com/LLNL/dfanalyzer@fix/log-setup
+git+https://github.com/llnl-asr/dfanalyzer@fix/log-setup
 git+https://github.com/llnl-asr/dftracer.git
 jupyter
