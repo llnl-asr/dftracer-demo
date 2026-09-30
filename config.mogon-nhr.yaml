@@ -1,0 +1,82 @@
+# -----------------------------------------------------------------------------
+# dftracer-demo configuration for MOGON NHR (JGU Mainz).
+#
+# Same keys as config.yaml; select it with
+#
+#   export DEMO_CONFIG=${DEMO_ROOT}/config.mogon-nhr.yaml
+#
+# (scripts/sync_mogon.sh sets this for `run` and `shell`).
+#
+# HOME is small, so everything the demo writes -- venv, builds, benchmark data,
+# traces, results, run logs -- lives under ${DEMO_PFS}/dftracer-demo on Lustre.
+# Only the repository itself stays in ~/projects/dftracer-demo.
+# -----------------------------------------------------------------------------
+
+modules:
+  purge: false
+  load:
+    - mpi/OpenMPI/5.0.3-GCC-13.3.0
+    - lang/Python/3.12.3-GCCcore-13.3.0
+
+env:
+  PIP_EXTRA_INDEX_URL: https://pypi.org/simple
+
+paths:
+  pfs: /lustre/project/ki-mawahpc/${USER}     # must come first; reused as ${DEMO_PFS}
+  install: ${DEMO_PFS}/dftracer-demo/install  # python venv + IOR binaries
+  build: ${DEMO_PFS}/dftracer-demo/build      # source checkouts built by setup.sh
+  data: ${DEMO_PFS}/dftracer-demo/data        # benchmark data (the I/O being traced)
+  traces: ${DEMO_PFS}/dftracer-demo/traces    # DFTracer trace logs (*.pfw.gz)
+  results: ${DEMO_PFS}/dftracer-demo/results  # benchmark + analysis output
+  runs: ${DEMO_PFS}/dftracer-demo/runs        # Slurm job stdout/stderr and run logs
+
+software:
+  ior:
+    repo: https://github.com/hpc/ior.git
+    ref: 4.0.0
+  node: lts
+  python:
+    - dftracer-utils==0.0.12.post1.dev131
+    - git+https://github.com/llnl-asr/pydftracer.git@develop
+    - dftracer==2.1.1.post45
+    - git+https://github.com/llnl-asr/dfanalyzer.git@develop
+    - git+https://github.com/argonne-lcf/dlio_benchmark.git@main
+
+slurm:
+  partition: ki-quick
+  account: ki-mawahpc
+  time: "00:15:00"
+  extra: ""
+  # mpi: pmi2               # srun --mpi=list on mogon-nhr: none, cray_shasta, pmi2
+  launcher: mpirun        # OpenMPI 5 needs PMIx, which this Slurm's srun lacks
+
+dftracer:
+  inc_metadata: 1
+  compression: 1
+
+ior:
+  nodes: 1
+  tasks: 2
+  app_name: ior
+  args: -b 32m -t 1m -i 5 -F -w -m
+
+dlio:
+  nodes: 1
+  tasks: 2
+  app_name: unet3d
+  workload: unet3d_a100
+  num_files_train: 32
+  record_length_bytes: 1048576
+  batch_size: 1
+  epochs: 1
+  extra: ""
+
+analyzer:
+  time_granularity: 10
+
+viewer:
+  port: 8080
+  time: "01:00:00"
+  browser: firefox
+  proxy: true
+  tunnel: mogon-nhr       # no VS Code Remote-SSH here: tunnel the viewer to the workstation

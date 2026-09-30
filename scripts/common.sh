@@ -242,7 +242,12 @@ demo_open_viewer() {
     log "Open the viewer: ${url}"
     log "If ${host_port%%:*} is not reachable from your machine: ssh -L ${host_port##*:}:${host_port} $(hostname -s), then open http://localhost:${host_port##*:}/${url#http://*/}"
     log "Stop it with: scancel ${jobid}"
-    if [[ "${DEMO_VIEWER_PROXY:-0}" == "1" && -n "${BROWSER:-}" && -n "${VSCODE_IPC_HOOK_CLI:-}" ]]; then
+    if [[ -n "${DEMO_VIEWER_TUNNEL:-}" ]]; then
+        # viewer.tunnel: no VS Code or X display; tunnel from the workstation.
+        # scripts/sync_mogon.sh run looks for the next line and opens the tunnel.
+        log "On your workstation: scripts/sync_mogon.sh tunnel ${DEMO_BENCH}"
+        log "  or: ssh -N -L ${host_port##*:}:${host_port} ${DEMO_VIEWER_TUNNEL}, then open http://localhost:${host_port##*:}/${url#http://*/}"
+    elif [[ "${DEMO_VIEWER_PROXY:-0}" == "1" && -n "${BROWSER:-}" && -n "${VSCODE_IPC_HOOK_CLI:-}" ]]; then
         # VS Code Remote-SSH: its $BROWSER helper forwards a localhost port to
         # your machine and opens it there. The relay listens on localhost too.
         local local_url="http://localhost:${host_port##*:}/${url#http://*/}"
@@ -257,14 +262,31 @@ demo_open_viewer() {
 
 # Launch an MPI program across the ranks of the current allocation, giving
 # each rank an equal share of the node's allocated cores (DLIO's DataLoader
-# workers run inside that share).
+# workers run inside that share). slurm.launcher picks srun (default) or the
+# MPI library's mpirun, for sites whose Slurm lacks the PMI plugin the MPI
+# needs (Mogon: OpenMPI 5 wants PMIx, srun only offers pmi2). A leading
+# --export=ALL,K=V,... applies K=V to the ranks with either launcher.
 demo_mpirun() {
     local ranks_per_node=$(( ${SLURM_NTASKS:-1} / ${SLURM_NNODES:-1} ))
     local cpus=$(( $(demo_cpus) / (ranks_per_node > 0 ? ranks_per_node : 1) ))
-    local args=(--ntasks="${SLURM_NTASKS:-1}" --cpus-per-task="$(( cpus > 0 ? cpus : 1 ))")
-    demo_optkv args --mpi "${DEMO_SLURM_MPI:-}"
-    log "srun $(demo_cmdline "${args[@]}" "$@")"
-    srun "${args[@]}" "$@"
+    (( cpus > 0 )) || cpus=1
+    local args
+    if [[ "${DEMO_SLURM_LAUNCHER:-srun}" == "mpirun" ]]; then
+        args=(mpirun -np "${SLURM_NTASKS:-1}" --map-by "slot:PE=${cpus}" --bind-to core)
+        if [[ "${1:-}" == --export=* ]]; then
+            local kv
+            IFS=',' read -ra kv <<< "${1#--export=}"
+            for kv in "${kv[@]}"; do
+                [[ "${kv}" == ALL ]] || args+=(-x "${kv}")
+            done
+            shift
+        fi
+    else
+        args=(srun --ntasks="${SLURM_NTASKS:-1}" --cpus-per-task="${cpus}")
+        demo_optkv args --mpi "${DEMO_SLURM_MPI:-}"
+    fi
+    log "$(demo_cmdline "${args[@]}" "$@")"
+    "${args[@]}" "$@"
 }
 
 # CPUs Slurm allocated on this node (nproc counts hyperthreads, which srun

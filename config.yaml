@@ -65,6 +65,7 @@ slurm:
   time: "00:15:00"        # short limits backfill sooner on a busy pdebug
   extra: ""               # extra sbatch flags, e.g. "--qos=standby"
   mpi: pmix_v3            # srun --mpi plugin used to launch MPI ranks
+  launcher: srun          # srun | mpirun (the MPI's own launcher, when srun lacks its PMI plugin)
 
 dftracer:
   inc_metadata: 1
@@ -96,3 +97,7 @@ viewer:
   time: "01:00:00"        # how long the dftracer_server job stays up
   browser: firefox        # opened on the login node when $DISPLAY is set
   proxy: true             # relay the viewer through the login node (http://<login>:<port>/)
+  tunnel: ""              # ssh host of this login node as seen from your workstation. Set it when
+                          # neither VS Code Remote-SSH nor $DISPLAY is available: the step then
+                          # prints the tunnel command, and `scripts/sync_mogon.sh run|view` opens
+                          # the viewer in your local browser. Empty: VS Code / $DISPLAY browser.

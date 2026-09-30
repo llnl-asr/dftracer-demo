@@ -45,6 +45,9 @@ main() {
     log "Modules: ${DEMO_MODULES_LOAD:-none}"
     log "Creating virtual environment with $(command -v python) ($(python --version 2>&1))"
     python -m venv "${DEMO_PATHS_INSTALL}"
+    # venv copies the mode of its activate templates; EasyBuild Pythons (Mogon)
+    # install them read-only, and nodeenv must append to bin/activate.
+    chmod -R u+w "${DEMO_PATHS_INSTALL}"
 
     # --- 3. activate -------------------------------------------------------------
     source "${DEMO_ROOT}/activate_env.sh"
