@@ -24,7 +24,32 @@ modules, paths or parameters.
 - Each key is exported to the shell as `DEMO_<SECTION>_<KEY>`. For example,
   `paths.traces` becomes `$DEMO_PATHS_TRACES` and `ior.tasks` becomes
   `$DEMO_IOR_TASKS`. Lists are exported space separated.
+- Each `paths` key is also exported as `DEMO_<KEY>`, so you can define your
+  own paths and reuse them in any value below them:
+
+  ```yaml
+  paths:
+    pfs: /p/lustre5/${USER}          # -> $DEMO_PFS
+    data: ${DEMO_PFS}/dftracer-demo  # -> $DEMO_DATA
+    scratch: ${DEMO_PFS}/scratch     # -> $DEMO_SCRATCH
+  ior:
+    args: -b 32m -t 1m -o ${DEMO_SCRATCH}/ior.dat
+  ```
+
+  References resolve in file order. The standard paths (`$DEMO_INSTALL`,
+  `$DEMO_DATA`, `$DEMO_TRACES`, …) work anywhere, even when left out. A
+  `${DEMO_…}` that isn't defined above its use is reported as a warning.
 - To use another file: `export DEMO_CONFIG=/path/to/my-config.yaml`.
+- **Every key is optional.** If a key is removed or left empty (`""`, `[]`,
+  `{}`), its flag or variable is left out of the command entirely, and the
+  tool's or Slurm's own default applies. For example, no `slurm.mpi` means no
+  `--mpi`, no `slurm.time` means no `--time`, an empty `env` entry is not
+  exported, and no `dlio.epochs` means DLIO uses the workload's epochs. The
+  exceptions are `paths.*`, which falls back to `${DEMO_ROOT}/<name>`
+  (`install`, `build`, `data`, `traces`, `results`, `runs`), and
+  `ior.nodes`/`dlio.nodes`, which default to 1 because Matrix rejects jobs that
+  request no size.
+- Every step logs the exact `sbatch`, `srun` and tool command it runs.
 
 ### `modules`
 
@@ -47,9 +72,10 @@ These are exported as-is by `activate_env.sh`. Add any variable the site needs.
 
 | Key | Default | Contents |
 |-----|---------|----------|
+| `pfs` | `/p/lustre5/${USER}` | parallel file system root, reused as `${DEMO_PFS}` (an example of your own path; add as many as you need) |
 | `install` | `${DEMO_ROOT}/install` | Python venv, Node.js, IOR binaries |
 | `build` | `${DEMO_ROOT}/build` | source checkouts built by `setup.sh` |
-| `data` | `/p/lustre5/${USER}/dftracer-demo` | benchmark data, i.e. the I/O being traced (use a parallel file system) |
+| `data` | `${DEMO_PFS}/dftracer-demo` | benchmark data, i.e. the I/O being traced (use a parallel file system) |
 | `traces` | `${DEMO_ROOT}/traces` | DFTracer traces: `<bench>/raw/` and `<bench>/compact/` |
 | `results` | `${DEMO_ROOT}/results` | benchmark output and analysis reports |
 | `runs` | `${DEMO_ROOT}/runs` | setup log and the Slurm job logs of every step |

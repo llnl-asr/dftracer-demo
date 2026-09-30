@@ -25,6 +25,38 @@ export DEMO_STEP_SCRIPT
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') [${DEMO_BENCH}/${DEMO_STEP}] $*"; }
 die() { log "ERROR: $*" >&2; exit 1; }
 
+# Optional arguments. Any config key may be empty or missing; the matching
+# flag is then left out of the command entirely, never passed blank.
+#   demo_opt        ARRAY --flag "$value"   appends: --flag value
+#   demo_optkv      ARRAY key    "$value"   appends: key=value
+#   demo_optwords   ARRAY "$words"          appends each word (extra flags)
+#   demo_export_opt NAME "$value"           exports NAME=value
+demo_opt() {
+    local -n __demo_arr="$1"
+    [[ -n "${3:-}" ]] && __demo_arr+=("$2" "$3")
+    return 0
+}
+demo_optkv() {
+    local -n __demo_arr="$1"
+    [[ -n "${3:-}" ]] && __demo_arr+=("$2=$3")
+    return 0
+}
+demo_optwords() {
+    local -n __demo_arr="$1"
+    local -a __demo_words=()
+    read -r -a __demo_words <<< "${2:-}"
+    __demo_arr+=("${__demo_words[@]}")
+    return 0
+}
+demo_export_opt() {
+    [[ -n "${2:-}" ]] && export "$1=$2"
+    return 0
+}
+# Shell-quoted command line, for logging exactly what runs.
+demo_cmdline() {
+    printf '%q ' "$@"
+}
+
 # shellcheck source=../activate_env.sh
 source "${DEMO_ROOT}/activate_env.sh" || die "could not activate the environment"
 set -euo pipefail
@@ -42,14 +74,15 @@ _demo_sbatch_args() {
     DEMO_SBATCH_ARGS=(
         --parsable
         --job-name "dftd-${DEMO_BENCH}-${DEMO_STEP}"
-        --partition "${DEMO_SLURM_PARTITION}"
-        --nodes "${nodes}" --ntasks "${tasks}" --time "${time}"
         --output "${log_file}" --open-mode append
         --export "ALL,DEMO_ROOT=${DEMO_ROOT},DEMO_STEP_SCRIPT=${DEMO_STEP_SCRIPT}"
     )
-    [[ -n "${DEMO_SLURM_ACCOUNT}" ]] && DEMO_SBATCH_ARGS+=(--account "${DEMO_SLURM_ACCOUNT}")
-    # shellcheck disable=SC2206
-    [[ -n "${DEMO_SLURM_EXTRA}" ]] && DEMO_SBATCH_ARGS+=(${DEMO_SLURM_EXTRA})
+    demo_opt DEMO_SBATCH_ARGS --partition "${DEMO_SLURM_PARTITION:-}"
+    demo_opt DEMO_SBATCH_ARGS --account "${DEMO_SLURM_ACCOUNT:-}"
+    demo_opt DEMO_SBATCH_ARGS --nodes "${nodes}"
+    demo_opt DEMO_SBATCH_ARGS --ntasks "${tasks}"
+    demo_opt DEMO_SBATCH_ARGS --time "${time}"
+    demo_optwords DEMO_SBATCH_ARGS "${DEMO_SLURM_EXTRA:-}"
     return 0
 }
 
@@ -74,6 +107,7 @@ demo_slurm_step() {
     out="$(_demo_new_log)"
     idfile="$(mktemp)"
     _demo_sbatch_args "${nodes}" "${tasks}" "${time}" "${out}"
+    log "sbatch --wait $(demo_cmdline "${DEMO_SBATCH_ARGS[@]}" "${DEMO_STEP_SCRIPT}" "$@")"
     sbatch --wait "${DEMO_SBATCH_ARGS[@]}" "${DEMO_STEP_SCRIPT}" "$@" > "${idfile}" &
     local sbatch_pid=$!
 
@@ -86,7 +120,7 @@ demo_slurm_step() {
     jobid="${jobid:-$(cut -d';' -f1 "${idfile}")}"
     local rc=0
     if [[ -n "${jobid}" ]]; then
-        log "Submitted job ${jobid} (partition ${DEMO_SLURM_PARTITION}); log: ${out}"
+        log "Submitted job ${jobid} (partition ${DEMO_SLURM_PARTITION:-default}); log: ${out}"
         demo_follow_log "${out}" "${sbatch_pid}"
     fi
     wait "${sbatch_pid}" || rc=$?
@@ -129,6 +163,7 @@ demo_slurm_submit() {
     shift 3
     DEMO_JOB_LOG="$(_demo_new_log)"
     _demo_sbatch_args "${nodes}" "${tasks}" "${time}" "${DEMO_JOB_LOG}"
+    log "sbatch $(demo_cmdline "${DEMO_SBATCH_ARGS[@]}" "${DEMO_STEP_SCRIPT}" "$@")"
     DEMO_JOB_ID="$(sbatch "${DEMO_SBATCH_ARGS[@]}" "${DEMO_STEP_SCRIPT}" "$@" | cut -d';' -f1)"
     [[ -n "${DEMO_JOB_ID}" ]] || die "sbatch submission failed"
 }
@@ -138,7 +173,7 @@ demo_slurm_submit() {
 demo_serve_traces() {
     local trace_dir="$1" url_file="$2"
     local port token host
-    port="$(python - "${DEMO_VIEWER_PORT}" <<'EOF'
+    port="$(python - "${DEMO_VIEWER_PORT:-8080}" <<'EOF'
 import socket, sys
 port = int(sys.argv[1])
 for candidate in [port, 0]:
@@ -163,9 +198,11 @@ EOF
     # compute node; the token keeps other users out.
     local threads
     threads="$(demo_cpus)"
-    dftracer_server -b 0.0.0.0 -p "${port}" -d "${trace_dir}" \
-        --token "${token}" --index-dir "${trace_dir}/.dftindex" \
-        --executor-threads "${threads}" --io-threads "${threads}"
+    local cmd=(dftracer_server -b 0.0.0.0 -p "${port}" -d "${trace_dir}"
+        --token "${token}" --index-dir "${trace_dir}/.dftindex"
+        --executor-threads "${threads}" --io-threads "${threads}")
+    log "$(demo_cmdline "${cmd[@]}" | sed "s/${token}/<token>/")"
+    "${cmd[@]}"
 }
 
 # Wait for a viewer job to publish its URL, then (viewer.proxy) relay it
@@ -183,12 +220,12 @@ demo_open_viewer() {
     done
     log "Viewer is up on the compute node: ${url}"
 
-    if [[ "${DEMO_VIEWER_PROXY}" == "1" ]]; then
+    if [[ "${DEMO_VIEWER_PROXY:-0}" == "1" ]]; then
         # http://<node>:<port>/?token=<token>
         local hostport="${url#http://}"
         hostport="${hostport%%/*}"
         local proxy_log="${RUN_DIR}/viewer_proxy-${jobid}.log" port="" tries=0
-        setsid nohup python3 "${DEMO_ROOT}/scripts/viewer_proxy.py" 0.0.0.0 "${DEMO_VIEWER_PORT}" \
+        setsid nohup python3 "${DEMO_ROOT}/scripts/viewer_proxy.py" 0.0.0.0 "${DEMO_VIEWER_PORT:-8080}" \
             "${hostport%%:*}" "${hostport##*:}" "${jobid}" > "${proxy_log}" 2>&1 < /dev/null &
         while [[ -z "${port}" ]] && (( tries++ < 20 )); do
             sleep 0.5
@@ -205,13 +242,14 @@ demo_open_viewer() {
     log "Open the viewer: ${url}"
     log "If ${host_port%%:*} is not reachable from your machine: ssh -L ${host_port##*:}:${host_port} $(hostname -s), then open http://localhost:${host_port##*:}/${url#http://*/}"
     log "Stop it with: scancel ${jobid}"
-    if [[ "${DEMO_VIEWER_PROXY}" == "1" && -n "${BROWSER:-}" && -n "${VSCODE_IPC_HOOK_CLI:-}" ]]; then
+    if [[ "${DEMO_VIEWER_PROXY:-0}" == "1" && -n "${BROWSER:-}" && -n "${VSCODE_IPC_HOOK_CLI:-}" ]]; then
         # VS Code Remote-SSH: its $BROWSER helper forwards a localhost port to
         # your machine and opens it there. The relay listens on localhost too.
         local local_url="http://localhost:${host_port##*:}/${url#http://*/}"
         log "Opening ${local_url} through VS Code (port ${host_port##*:} is forwarded; see the Ports panel)"
         "${BROWSER}" "${local_url}" || true
-    elif [[ -n "${DISPLAY:-}" ]] && command -v "${DEMO_VIEWER_BROWSER}" >/dev/null 2>&1; then
+    elif [[ -n "${DISPLAY:-}" && -n "${DEMO_VIEWER_BROWSER:-}" ]] \
+            && command -v "${DEMO_VIEWER_BROWSER}" >/dev/null 2>&1; then
         log "Opening ${DEMO_VIEWER_BROWSER} on $(hostname -s)"
         nohup "${DEMO_VIEWER_BROWSER}" "${url}" >/dev/null 2>&1 &
     fi
@@ -223,8 +261,10 @@ demo_open_viewer() {
 demo_mpirun() {
     local ranks_per_node=$(( ${SLURM_NTASKS:-1} / ${SLURM_NNODES:-1} ))
     local cpus=$(( $(demo_cpus) / (ranks_per_node > 0 ? ranks_per_node : 1) ))
-    srun --mpi="${DEMO_SLURM_MPI}" --ntasks="${SLURM_NTASKS:-1}" \
-        --cpus-per-task="$(( cpus > 0 ? cpus : 1 ))" "$@"
+    local args=(--ntasks="${SLURM_NTASKS:-1}" --cpus-per-task="$(( cpus > 0 ? cpus : 1 ))")
+    demo_optkv args --mpi "${DEMO_SLURM_MPI:-}"
+    log "srun $(demo_cmdline "${args[@]}" "$@")"
+    srun "${args[@]}" "$@"
 }
 
 # CPUs Slurm allocated on this node (nproc counts hyperthreads, which srun

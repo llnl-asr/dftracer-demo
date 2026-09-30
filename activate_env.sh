@@ -29,14 +29,16 @@ if ! type module >/dev/null 2>&1; then
     unset _init
 fi
 
-if [[ "${DEMO_MODULES_PURGE}" == "1" ]]; then
+if [[ "${DEMO_MODULES_PURGE:-0}" == "1" ]]; then
     module purge
 fi
-# shellcheck disable=SC2086
-module load ${DEMO_MODULES_LOAD} || {
-    echo "activate_env.sh: module load ${DEMO_MODULES_LOAD} failed" >&2
-    return 1
-}
+if [[ -n "${DEMO_MODULES_LOAD:-}" ]]; then
+    # shellcheck disable=SC2086
+    module load ${DEMO_MODULES_LOAD} || {
+        echo "activate_env.sh: module load ${DEMO_MODULES_LOAD} failed" >&2
+        return 1
+    }
+fi
 
 if [[ -f "${DEMO_PATHS_INSTALL}/bin/activate" ]]; then
     source "${DEMO_PATHS_INSTALL}/bin/activate"

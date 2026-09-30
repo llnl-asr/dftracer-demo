@@ -4,19 +4,19 @@
 # enough to capture the AI/ML events (train, epoch, fetch.*, compute,
 # checkpoint) together with the POSIX I/O on the data/checkpoint folders.
 source "${DEMO_ROOT:-$(cd "$(dirname "$0")/../.." && pwd)}/scripts/common.sh"
-demo_slurm_step "${DEMO_DLIO_NODES}" "${DEMO_DLIO_TASKS}" "${DEMO_SLURM_TIME}" "$@"
+demo_slurm_step "${DEMO_DLIO_NODES:-1}" "${DEMO_DLIO_TASKS:-}" "${DEMO_SLURM_TIME:-}" "$@"
 source "$(dirname "${DEMO_STEP_SCRIPT}")/_workload.sh"
 
-[[ -d "${DATA_DIR}/${DEMO_DLIO_WORKLOAD}/data" ]] || die "no dataset; run 01_generate_data.sh first"
+[[ -d "${DLIO_WORKLOAD_DIR}/data" ]] || die "no dataset; run 01_generate_data.sh first"
 
 # --- DFTracer configuration ---------------------------------------------------
 export DFTRACER_ENABLE=1
-export DFTRACER_INC_METADATA="${DEMO_DFTRACER_INC_METADATA}"
-export DFTRACER_TRACE_COMPRESSION="${DEMO_DFTRACER_COMPRESSION}"
+demo_export_opt DFTRACER_INC_METADATA "${DEMO_DFTRACER_INC_METADATA:-}"
+demo_export_opt DFTRACER_TRACE_COMPRESSION "${DEMO_DFTRACER_COMPRESSION:-}"
 
 OUT="${RESULT_DIR}/train"
 demo_fresh_dir "${OUT}" "${TRACE_DIR}/raw"
-log "Training ${DEMO_DLIO_WORKLOAD} on ${SLURM_NTASKS} ranks"
+log "Training ${DEMO_DLIO_WORKLOAD:-default} on ${SLURM_NTASKS} ranks"
 demo_mpirun dlio_benchmark "${DLIO_ARGS[@]}" \
     ++workload.workflow.generate_data=False \
     ++workload.workflow.train=True \

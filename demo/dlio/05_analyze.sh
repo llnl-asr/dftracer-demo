@@ -2,7 +2,7 @@
 # DLIO step 5: generic DFAnalyzer POSIX analysis of the training traces
 # (notebook step 11).
 source "${DEMO_ROOT:-$(cd "$(dirname "$0")/../.." && pwd)}/scripts/common.sh"
-demo_slurm_step 1 1 "${DEMO_SLURM_TIME}" "$@"
+demo_slurm_step 1 1 "${DEMO_SLURM_TIME:-}" "$@"
 
 OUT="${RESULT_DIR}/analysis-posix"
 demo_fresh_dir "${OUT}"

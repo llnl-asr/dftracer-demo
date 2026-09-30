@@ -42,7 +42,7 @@ main() {
     # --- 2. venv -----------------------------------------------------------------
     set +u  # module/venv scripts reference unset variables
     source "${DEMO_ROOT}/activate_env.sh" 2>/dev/null   # modules only; no venv yet
-    log "Modules: ${DEMO_MODULES_LOAD}"
+    log "Modules: ${DEMO_MODULES_LOAD:-none}"
     log "Creating virtual environment with $(command -v python) ($(python --version 2>&1))"
     python -m venv "${DEMO_PATHS_INSTALL}"
 
@@ -56,14 +56,16 @@ main() {
 
     # Node.js (into the venv via nodeenv) so dftracer-utils can build the
     # dftracer_server web UI; without it the server only serves a placeholder page.
-    log "Installing Node.js ${DEMO_SOFTWARE_NODE} into the venv (nodeenv)"
+    log "Installing Node.js ${DEMO_SOFTWARE_NODE:-latest} into the venv (nodeenv)"
     python -m pip install nodeenv
-    nodeenv --python-virtualenv --node="${DEMO_SOFTWARE_NODE}" --prebuilt
+    local nodeenv_args=(--python-virtualenv --prebuilt)
+    [[ -n "${DEMO_SOFTWARE_NODE:-}" ]] && nodeenv_args+=(--node="${DEMO_SOFTWARE_NODE}")
+    nodeenv "${nodeenv_args[@]}"
     hash -r
     log "node $(node --version), npm $(npm --version)"
     export SKBUILD_CMAKE_DEFINE="DFTRACER_UTILS_BUILD_WEB_UI=ON"
 
-    for pkg in ${DEMO_SOFTWARE_PYTHON}; do
+    for pkg in ${DEMO_SOFTWARE_PYTHON:-}; do
         log "pip install ${pkg}"
         python -m pip install "${pkg}"
     done
@@ -71,7 +73,7 @@ main() {
     # A later package can pull a PyPI release over an earlier git install (e.g.
     # dftracer requires pydftracer>=2.0.4, which a 2.0.4.devN head does not meet).
     # Reinstall, without dependencies, every git package that was replaced.
-    for pkg in $(python "${DEMO_ROOT}/scripts/replaced_git_packages.py" ${DEMO_SOFTWARE_PYTHON}); do
+    for pkg in $(python "${DEMO_ROOT}/scripts/replaced_git_packages.py" ${DEMO_SOFTWARE_PYTHON:-}); do
         log "Re-pinning ${pkg} (replaced by a PyPI release)"
         python -m pip install --no-deps --force-reinstall "${pkg}"
     done
@@ -86,17 +88,22 @@ main() {
         python -m pip install --force-reinstall --no-cache-dir --no-deps --no-binary mpi4py mpi4py
     python -c "from mpi4py import MPI; print('mpi4py uses:', MPI.Get_library_version().splitlines()[0])"
 
-    log "Building IOR ${DEMO_SOFTWARE_IOR_REF}"
-    mkdir -p "${DEMO_PATHS_BUILD}"
-    git clone --depth 1 --branch "${DEMO_SOFTWARE_IOR_REF}" \
-        "${DEMO_SOFTWARE_IOR_REPO}" "${DEMO_PATHS_BUILD}/ior"
-    (
-        cd "${DEMO_PATHS_BUILD}/ior"
-        ./bootstrap
-        ./configure --prefix="${DEMO_PATHS_INSTALL}" CC=mpicc
-        make -j "$(nproc)"
-        make install
-    )
+    if [[ -n "${DEMO_SOFTWARE_IOR_REPO:-}" ]]; then
+        log "Building IOR ${DEMO_SOFTWARE_IOR_REF:-(default branch)}"
+        mkdir -p "${DEMO_PATHS_BUILD}"
+        local clone_args=(--depth 1)
+        [[ -n "${DEMO_SOFTWARE_IOR_REF:-}" ]] && clone_args+=(--branch "${DEMO_SOFTWARE_IOR_REF}")
+        git clone "${clone_args[@]}" "${DEMO_SOFTWARE_IOR_REPO}" "${DEMO_PATHS_BUILD}/ior"
+        (
+            cd "${DEMO_PATHS_BUILD}/ior"
+            ./bootstrap
+            ./configure --prefix="${DEMO_PATHS_INSTALL}" CC=mpicc
+            make -j "$(nproc)"
+            make install
+        )
+    else
+        log "software.ior.repo not set; skipping IOR"
+    fi
 
     log "Installed versions:"
     python -m pip list 2>/dev/null | grep -iE '^(dftracer|pydftracer|dlio|mpi4py)' || true

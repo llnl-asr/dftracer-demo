@@ -3,7 +3,7 @@
 # (notebook steps 9-11). The summary tables are printed to the job log; the
 # analyzer's checkpoints and logs land in results/ior/analysis.
 source "${DEMO_ROOT:-$(cd "$(dirname "$0")/../.." && pwd)}/scripts/common.sh"
-demo_slurm_step 1 1 "${DEMO_SLURM_TIME}" "$@"
+demo_slurm_step 1 1 "${DEMO_SLURM_TIME:-}" "$@"
 
 OUT="${RESULT_DIR}/analysis"
 demo_fresh_dir "${OUT}"

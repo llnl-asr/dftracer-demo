@@ -10,6 +10,12 @@
 # * Each key is exported to the shell as DEMO_<SECTION>_<KEY> (upper-case),
 #   e.g. paths.traces -> DEMO_PATHS_TRACES, ior.tasks -> DEMO_IOR_TASKS.
 #   Lists are exported space separated. Keys under `env` are exported as-is.
+# * Each paths.<key> is also exported as DEMO_<KEY>, so a path defined here can
+#   be reused by any value below it: add `pfs: /p/lustre5/${USER}` and then
+#   write `${DEMO_PFS}/test`. The standard paths (DEMO_INSTALL, DEMO_DATA, ...)
+#   are available everywhere, even when left out.
+# * An empty or removed key is not exported, so its flag is left out of every
+#   command (paths.* fall back to ${DEMO_ROOT}/<name>).
 # * Override the file with DEMO_CONFIG=/path/to/other.yaml.
 #
 # Defaults target Matrix @ LLNL (Slurm, TOSS 4).
@@ -34,7 +40,8 @@ env:
 paths:
   install: ${DEMO_ROOT}/install           # python venv + IOR binaries
   build: ${DEMO_ROOT}/build               # source checkouts built by setup.sh
-  data: /p/lustre5/${USER}/dftracer-demo  # benchmark data (the I/O being traced)
+  pfs: /p/lustre5/${USER}                 # parallel file system; reuse as ${DEMO_PFS}
+  data: ${DEMO_PFS}/dftracer-demo         # benchmark data (the I/O being traced)
   traces: ${DEMO_ROOT}/traces             # DFTracer trace logs (*.pfw.gz)
   results: ${DEMO_ROOT}/results           # benchmark + analysis output
   runs: ${DEMO_ROOT}/runs                 # Slurm job stdout/stderr and run logs
@@ -46,9 +53,9 @@ software:
   node: lts               # Node.js for the dftracer_server web UI (nodeenv version)
   # pip-installed in this order; latest development heads.
   python:
-    - git+https://github.com/llnl-asr/dftracer-utils.git@develop
+    - dftracer-utils==0.0.12.post1.dev131
     - git+https://github.com/llnl-asr/pydftracer.git@develop
-    - git+https://github.com/llnl-asr/dftracer.git@develop
+    - dftracer==2.1.1.post45
     - git+https://github.com/llnl-asr/dfanalyzer.git@develop
     - git+https://github.com/argonne-lcf/dlio_benchmark.git@main
 
