@@ -7,7 +7,9 @@ and visualize ([dftracer-utils](https://github.com/llnl-asr/dftracer-utils)
 `dftracer_server`) the traces.
 
 Every step is a script that runs through Slurm. The defaults target
-**Matrix @ LLNL**.
+**Matrix @ LLNL**. A ready-made config for **MOGON NHR @ JGU Mainz**, plus a
+script to sync, run and view it from your workstation, is described in
+[Running on MOGON NHR](#5-running-on-mogon-nhr).
 
 ```text
 config.yaml ──> setup.sh ──> activate_env.sh ──> demo/ior/*   (5 steps)
@@ -40,6 +42,8 @@ modules, paths or parameters.
   `$DEMO_DATA`, `$DEMO_TRACES`, …) work anywhere, even when left out. A
   `${DEMO_…}` that isn't defined above its use is reported as a warning.
 - To use another file: `export DEMO_CONFIG=/path/to/my-config.yaml`.
+  [config.mogon-nhr.yaml](config.mogon-nhr.yaml) is an example for another
+  site.
 - **Every key is optional.** If a key is removed or left empty (`""`, `[]`,
   `{}`), its flag or variable is left out of the command entirely, and the
   tool's or Slurm's own default applies. For example, no `slurm.mpi` means no
@@ -97,6 +101,7 @@ These are exported as-is by `activate_env.sh`. Add any variable the site needs.
 | `time` | `00:15:00` | time limit per step (short limits backfill sooner) |
 | `extra` | `""` | extra `sbatch` flags, e.g. `--qos=standby` |
 | `mpi` | `pmix_v3` | `srun --mpi` plugin used to launch MPI ranks |
+| `launcher` | `srun` | how MPI ranks are started: `srun`, or `mpirun` (the MPI library's own launcher, run inside the allocation) when the site's `srun` lacks the PMI plugin the MPI needs |
 
 ### Benchmark and tool parameters
 
@@ -119,6 +124,7 @@ These are exported as-is by `activate_env.sh`. Add any variable the site needs.
 | `viewer.time` | `01:00:00` | how long the viewer job stays up |
 | `viewer.browser` | `firefox` | browser opened on the login node when `$DISPLAY` is set |
 | `viewer.proxy` | `true` | relay the viewer through the login node, so it opens at `http://<login-node>:<port>/` |
+| `viewer.tunnel` | `""` | SSH host of the login node as seen from your workstation (e.g. `mogon-nhr`). Set it when neither VS Code Remote-SSH nor `$DISPLAY` is available. The step then prints the tunnel command instead of opening a browser, and [sync_mogon.sh](#5-running-on-mogon-nhr) opens the viewer in your local browser |
 
 ## 2. Set up the environment
 
@@ -259,6 +265,10 @@ Stop it with: scancel 351250
   the script opens the URL in `viewer.browser` (Firefox) itself.
 - **SSH tunnel**: if the login node is not reachable from your machine, run the
   printed `ssh -L …` command and open `http://localhost:<port>/?token=…`.
+- **Tunnel from your workstation** (`viewer.tunnel` set): the step prints
+  `scripts/sync_mogon.sh tunnel <bench>` and an equivalent `ssh -N -L …`
+  command to run on your workstation. See
+  [Viewing traces](#viewing-traces-in-your-local-browser).
 - **VS Code Remote-SSH**: when the step runs in a VS Code terminal, it opens
   `http://localhost:<port>/?token=…` through VS Code, which forwards the port
   to your machine automatically. To do it by hand, add `<port>` in the *Ports*
@@ -272,21 +282,132 @@ is saved in `runs/<bench>/viewer.url`, and the relay log in
 `runs/<bench>/viewer_proxy-<jobid>.log`. Stop the viewer with
 `scancel <jobid>` when you are done.
 
+`dftracer_server` indexes the traces when it starts, so the page can take a
+minute to load after the URL is printed.
+
+## 5. Running on MOGON NHR
+
+You edit the repository on your workstation; `scripts/sync_mogon.sh` copies it
+to `~/projects/dftracer-demo` on MOGON NHR, runs the steps there with
+[config.mogon-nhr.yaml](config.mogon-nhr.yaml), and tunnels the viewer back to
+your local browser.
+
+### Prerequisites
+
+An SSH host `mogon-nhr` in `~/.ssh/config` (login through the `hpcgate` jump
+host) with connection sharing:
+
+```sshconfig
+Host mogon-nhr
+    HostName mogon-nhr-01
+    User <your-user>
+    ProxyJump hpcgate
+    IdentityFile ~/.ssh/<your-key>
+    ControlMaster auto
+    ControlPath /tmp/%r@%h:%p
+```
+
+The login node asks for keyboard-interactive authentication (OTP), so the
+script keeps one shared connection open and runs every `ssh`/`rsync` through
+it: you log in once per session. Close it with `ssh -O exit mogon-nhr`.
+
+### Where things go
+
+HOME is small, so only the repository lives there. Everything the demo writes
+is under `${DEMO_PFS}/dftracer-demo` on Lustre, with
+`paths.pfs: /lustre/project/ki-mawahpc/${USER}`:
+
+| What | Where |
+|------|-------|
+| repository | `~/projects/dftracer-demo` |
+| venv, Node.js, IOR (`paths.install`) | `${DEMO_PFS}/dftracer-demo/install` |
+| builds, data, traces, results, runs | `${DEMO_PFS}/dftracer-demo/{build,data,traces,results,runs}` |
+
+### Sync
+
+```bash
+scripts/sync_mogon.sh              # two-way: push, then pull
+scripts/sync_mogon.sh push         # workstation -> cluster only
+scripts/sync_mogon.sh pull         # cluster -> workstation only
+scripts/sync_mogon.sh sync -n      # dry run (extra flags go to rsync)
+```
+
+- Both directions use `rsync --update`: a file is replaced only by a newer copy,
+  so edits on either side survive. If the same file changed on both sides, the
+  newer one wins.
+- Deletions are not propagated. Delete on both sides, or use
+  `push --delete` to mirror the workstation onto the cluster.
+- `.git`, `install/`, `build/`, `data/` and `software/` are never synced. Commit
+  and push to git from the workstation.
+- Override the target with `MOGON_HOST`, `MOGON_DIR` and `MOGON_PFS`.
+
+### Run
+
+```bash
+scripts/sync_mogon.sh run ./setup.sh                # once, on the login node
+scripts/sync_mogon.sh run demo/ior/run_all.sh
+scripts/sync_mogon.sh run demo/dlio/02_train.sh
+scripts/sync_mogon.sh shell                         # interactive shell in the repo
+scripts/sync_mogon.sh fetch                         # results/ and runs/ -> ./mogon-out/
+```
+
+`run` pushes, runs the command in the remote repository with
+`DEMO_CONFIG=config.mogon-nhr.yaml`, then pulls. When you log in to the cluster
+yourself instead, select the config first (or add this to `~/.bashrc` there):
+
+```bash
+export DEMO_CONFIG=~/projects/dftracer-demo/config.mogon-nhr.yaml
+```
+
+### Viewing traces in your local browser
+
+VS Code Remote-SSH is not available on MOGON, so `viewer.tunnel: mogon-nhr` is
+set. The viewer goes compute node -> login-node relay (`viewer.proxy`) ->
+workstation (SSH port forward on the shared connection):
+
+```bash
+scripts/sync_mogon.sh run demo/ior/run_all.sh   # opens the viewer when the last step starts it
+scripts/sync_mogon.sh view dlio                 # start only the viewer, then open it
+scripts/sync_mogon.sh tunnel ior                # reconnect to a viewer that is already running
+```
+
+The viewer opens at `http://localhost:8080/?token=…` (the next free port if
+8080 is taken; set `MOGON_VIEW_PORT` to choose another). Ctrl-C closes only the
+tunnel; the viewer job runs until `viewer.time` or `scancel <jobid>`.
+
+### Notes for MOGON NHR
+
+- **MPI launch**: Slurm's `srun` offers only the `pmi2` and `cray_shasta`
+  plugins, while OpenMPI 5 needs PMIx. Launched with `srun`, every rank starts
+  as its own rank 0 (IOR then fails with `stat(... test.bat.00000000.0)`). The
+  config sets `slurm.launcher: mpirun`, which starts the ranks with OpenMPI's
+  `mpirun` inside the allocation; `LD_PRELOAD` still reaches only the ranks
+  (`-x LD_PRELOAD=…`).
+- **Modules**: `mpi/OpenMPI/5.0.3-GCC-13.3.0` and
+  `lang/Python/3.12.3-GCCcore-13.3.0`.
+- **Read-only venv scripts**: the EasyBuild Python installs its venv templates
+  read-only, so `bin/activate` came out read-only and `nodeenv` could not write
+  to it. `setup.sh` now makes the venv owner-writable right after creating it.
+- **Slurm**: account `ki-mawahpc`, partition `ki-quick`.
+
 ## Layout
 
 ```
-config.yaml               all settings
+config.yaml               all settings (Matrix)
+config.mogon-nhr.yaml     all settings for MOGON NHR
 setup.sh                  clean, fresh venv, activate, install
 activate_env.sh           module load + venv + config variables (source it)
-scripts/common.sh         step helpers (Slurm self-submission, srun, viewer)
+scripts/common.sh         step helpers (Slurm self-submission, srun/mpirun, viewer)
 scripts/load_config.py    config.yaml -> DEMO_* shell variables
 scripts/viewer_proxy.py   login-node relay to dftracer_server
+scripts/sync_mogon.sh     workstation <-> MOGON NHR sync, remote run, viewer tunnel
 demo/ior/                 IOR steps + run_all.sh
 demo/dlio/                DLIO steps + run_all.sh (_workload.sh: shared DLIO overrides)
 install/  build/          created by setup.sh
 traces/<bench>/           raw/ and compact/ DFTracer traces
 results/<bench>/          benchmark output and analysis
 runs/<bench>/             Slurm job logs, viewer.url
+mogon-out/                results/ and runs/ fetched from MOGON NHR (git-ignored)
 ```
 
 The original notebooks (`demo/*/demo.ipynb`) are kept for reference. This
