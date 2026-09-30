@@ -205,7 +205,13 @@ demo_open_viewer() {
     log "Open the viewer: ${url}"
     log "If ${host_port%%:*} is not reachable from your machine: ssh -L ${host_port##*:}:${host_port} $(hostname -s), then open http://localhost:${host_port##*:}/${url#http://*/}"
     log "Stop it with: scancel ${jobid}"
-    if [[ -n "${DISPLAY:-}" ]] && command -v "${DEMO_VIEWER_BROWSER}" >/dev/null 2>&1; then
+    if [[ "${DEMO_VIEWER_PROXY}" == "1" && -n "${BROWSER:-}" && -n "${VSCODE_IPC_HOOK_CLI:-}" ]]; then
+        # VS Code Remote-SSH: its $BROWSER helper forwards a localhost port to
+        # your machine and opens it there. The relay listens on localhost too.
+        local local_url="http://localhost:${host_port##*:}/${url#http://*/}"
+        log "Opening ${local_url} through VS Code (port ${host_port##*:} is forwarded; see the Ports panel)"
+        "${BROWSER}" "${local_url}" || true
+    elif [[ -n "${DISPLAY:-}" ]] && command -v "${DEMO_VIEWER_BROWSER}" >/dev/null 2>&1; then
         log "Opening ${DEMO_VIEWER_BROWSER} on $(hostname -s)"
         nohup "${DEMO_VIEWER_BROWSER}" "${url}" >/dev/null 2>&1 &
     fi

@@ -92,6 +92,7 @@ These are exported as-is by `activate_env.sh`. Add any variable the site needs.
 | `viewer.port` | `8080` | `dftracer_server` port (a free one is picked if taken) |
 | `viewer.time` | `01:00:00` | how long the viewer job stays up |
 | `viewer.browser` | `firefox` | browser opened on the login node when `$DISPLAY` is set |
+| `viewer.proxy` | `true` | relay the viewer through the login node, so it opens at `http://<login-node>:<port>/` |
 
 ## 2. Set up the environment
 
@@ -211,26 +212,39 @@ demo/ior/01_run_ior.sh
 ## 4. Visualize
 
 `05_visualize.sh` (IOR) and `07_visualize.sh` (DLIO) start `dftracer_server` on
-the compacted traces in a Slurm job that lasts `viewer.time`. The server listens
-on the compute node and requires a random access token. The script waits for
-the server to come up, then prints:
+the compacted traces in a Slurm job that lasts `viewer.time`. The server runs on
+a compute node and requires a random access token.
+
+With `viewer.proxy: true` (the default), the script also starts a small relay
+([scripts/viewer_proxy.py](scripts/viewer_proxy.py)) on the login node. You then
+open the viewer directly at the login node:
 
 ```
-Viewer is up: http://matrix9:8080/?token=5f0c…
-From your workstation: ssh -L 8080:matrix9:8080 matrix1, then open http://localhost:8080/?token=5f0c…
-Stop it with: scancel 351212
+Viewer is up on the compute node: http://matrix9:8080/?token=c7bb…
+Proxied through matrix1:8080 (stops with the job)
+Open the viewer: http://matrix1:8080/?token=c7bb…
+Stop it with: scancel 351250
 ```
 
-You can open the viewer in any of these ways:
-
+- **Directly**: open the printed `http://<login-node>:<port>/?token=…` from any
+  machine that can reach the login node. On a busy login node, the next free
+  port after `viewer.port` is used.
 - **Browser on the cluster**: with X11 forwarding (`ssh -X`) or a VNC session,
-  the script opens the URL in `viewer.browser` (Firefox) on the login node.
-- **SSH tunnel from your workstation**: run the printed `ssh -L …` command, then
-  open `http://localhost:<port>/?token=…`.
-- **VS Code Remote-SSH**: forward `<node>:<port>` in the *Ports* panel.
+  the script opens the URL in `viewer.browser` (Firefox) itself.
+- **SSH tunnel**: if the login node is not reachable from your machine, run the
+  printed `ssh -L …` command and open `http://localhost:<port>/?token=…`.
+- **VS Code Remote-SSH**: when the step runs in a VS Code terminal, it opens
+  `http://localhost:<port>/?token=…` through VS Code, which forwards the port
+  to your machine automatically. To do it by hand, add `<port>` in the *Ports*
+  panel and open `http://localhost:<port>/?token=…`. The integrated browser
+  (*Simple Browser: Show*) only works with such a forwarded `localhost` URL,
+  not with `http://matrix1:…`.
 
-The URL of the latest viewer is also saved in `runs/<bench>/viewer.url`. Stop
-the server with `scancel <jobid>` when you are done.
+The relay only forwards bytes, so the token is still checked by the server, and
+the relay exits by itself when the viewer job ends. The URL of the latest viewer
+is saved in `runs/<bench>/viewer.url`, and the relay log in
+`runs/<bench>/viewer_proxy-<jobid>.log`. Stop the viewer with
+`scancel <jobid>` when you are done.
 
 ## Layout
 
@@ -240,6 +254,7 @@ setup.sh                  clean, fresh venv, activate, install
 activate_env.sh           module load + venv + config variables (source it)
 scripts/common.sh         step helpers (Slurm self-submission, srun, viewer)
 scripts/load_config.py    config.yaml -> DEMO_* shell variables
+scripts/viewer_proxy.py   login-node relay to dftracer_server
 demo/ior/                 IOR steps + run_all.sh
 demo/dlio/                DLIO steps + run_all.sh (_workload.sh: shared DLIO overrides)
 install/  build/          created by setup.sh
