@@ -217,3 +217,9 @@ output/dlio/unet3d_a100/*.json
 output/dlio/unet3d_a100/*.pfw.gz*
 output/dlio/unet3d_a100-gen/*.json
 output/dlio/unet3d_a100-gen/*.pfw.gz*
+# dftracer-demo generated directories (see config.yaml paths)
+build
+traces
+results
+runs
+software

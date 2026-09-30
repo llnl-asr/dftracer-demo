@@ -1,4 +1,0 @@
-./software/dlio_benchmark
-dftracer
-dftracer[dfanalyzer]
-jupyter
